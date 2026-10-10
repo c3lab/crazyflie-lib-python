@@ -182,7 +182,10 @@ class Crazyflie():
     def _log_toc_updated_cb(self):
         """Called when the log TOC has been fully updated"""
         logger.info('Log TOC finished updating')
-        self.mem.refresh(self._mems_updated_cb)
+        if getattr(self.link, 'supports_memory_enumeration', True):
+            self.mem.refresh(self._mems_updated_cb)
+        else:
+            self._mems_updated_cb()
 
     def _all_parameters_updated(self):
         """Called when all parameters have been updated"""
@@ -259,15 +262,18 @@ class Crazyflie():
                 self.link = None
             self.connection_failed.call(link_uri, exception_text)
 
-    def close_link(self):
+    def close_link(self, send_stop=True):
         """Close the communication link."""
         logger.info('Closing link')
-        if (self.link is not None):
+        if self.link is not None and send_stop:
             self.commander.send_setpoint(0, 0, 0, 0)
-        if (self.link is not None):
-            self.link.close()
-            self.link = None
-        self._answer_patterns = {}
+        with self._send_lock:
+            if self.link is not None:
+                self.link.close()
+                self.link = None
+            for timer in self._answer_patterns.values():
+                timer.cancel()
+            self._answer_patterns = {}
         self.disconnected.call(self.link_uri)
         self.state = State.DISCONNECTED
 
